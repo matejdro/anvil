@@ -2494,6 +2494,65 @@ public final class InjectClass_MembersInjector<T, U, V> implements MembersInject
     }
   }
 
+  @Test
+  fun `a member injector is generated for a class with a base class with a proper constructor parameter order`() {
+    val otherModuleResult = compile(
+      """
+      package com.squareup.test
+
+      import javax.inject.Inject
+
+      abstract class Base {
+          @Inject
+          lateinit var aString: String
+      
+          @Inject
+          lateinit var aSet: Set<String>
+      }
+      """
+    ) {
+      assertThat(exitCode).isEqualTo(OK)
+    }
+
+
+    compile(
+      """
+      package com.squareup.test
+
+      import javax.inject.Inject
+
+      class InjectClass : Base() {
+        @Inject lateinit var numbers: List<Int>
+      }
+      """,
+      previousCompilationResult = otherModuleResult
+    ) {
+      assertThat(exitCode).isEqualTo(OK)
+
+      val injectclass = classLoader.loadClass("com.squareup.test.InjectClass")
+
+      val membersInjectorClass = injectclass
+        .membersInjector()
+
+
+      val constructor = membersInjectorClass.declaredConstructors.single()
+
+      // We cannot check for parameter types because of type erasure, but we can try to
+      // instantiate it and see if it fails
+
+      val membersInjectorInstance = constructor
+        .newInstance(
+          Provider { "" },
+          Provider { setOf("") },
+          Provider { listOf("") }
+        ) as MembersInjector<Any>
+
+      val injectClassInstance = injectClass.getDeclaredConstructor().newInstance()
+
+      membersInjectorInstance.injectMembers(injectClassInstance)
+    }
+  }
+
   private fun Class<*>.staticInjectMethod(memberName: String): Method {
     // We can't check the @InjectedFieldSignature annotation unfortunately, because it has class
     // retention.
