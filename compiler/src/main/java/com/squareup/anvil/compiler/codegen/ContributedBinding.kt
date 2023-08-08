@@ -8,6 +8,8 @@ import com.squareup.anvil.compiler.internal.reference.ClassReference
 import com.squareup.anvil.compiler.internal.reference.allSuperTypeClassReferences
 import com.squareup.anvil.compiler.internal.reference.toClassReference
 import com.squareup.kotlinpoet.AnnotationSpec
+import com.squareup.kotlinpoet.ParameterizedTypeName
+import com.squareup.kotlinpoet.TypeName
 import org.jetbrains.kotlin.descriptors.ModuleDescriptor
 import kotlin.LazyThreadSafetyMode.NONE
 
@@ -16,6 +18,7 @@ internal data class ContributedBinding(
   val mapKeys: List<AnnotationSpec>,
   val qualifiers: List<AnnotationSpec>,
   val boundType: ClassReference,
+  val boundTypeParameters: List<TypeName>,
   val priority: Priority,
   val qualifiersKeyLazy: Lazy<String>
 )
@@ -24,7 +27,7 @@ internal fun AnnotationReference.toContributedBinding(
   isMultibinding: Boolean,
   module: ModuleDescriptor,
 ): ContributedBinding {
-  val boundType = requireBoundType(module)
+  val (boundType, boundTypeParameters) = requireBoundType(module)
 
   val mapKeys = if (isMultibinding) {
     declaringClass().annotations.filter { it.isMapKey() }.map { it.toAnnotationSpec() }
@@ -39,37 +42,52 @@ internal fun AnnotationReference.toContributedBinding(
     declaringClass().annotations.filter { it.isQualifier() }.map { it.toAnnotationSpec() }
   }
 
+  println("create CB $boundTypeParameters")
+
   return ContributedBinding(
     contributedClass = declaringClass(),
     mapKeys = mapKeys,
     qualifiers = qualifiers,
     boundType = boundType,
+    boundTypeParameters = boundTypeParameters,
     priority = priority(),
     qualifiersKeyLazy = declaringClass().qualifiersKeyLazy(boundType, ignoreQualifier)
-  )
+  ).also { println("got CB $it") }
 }
 
-private fun AnnotationReference.requireBoundType(module: ModuleDescriptor): ClassReference {
+private fun AnnotationReference.requireBoundType(module: ModuleDescriptor): Pair<ClassReference, List<TypeName>> {
   val boundFromAnnotation = boundTypeOrNull()
 
   if (boundFromAnnotation != null) {
     // Since all classes extend Any, we can stop here.
-    if (boundFromAnnotation.fqName == anyFqName) return anyFqName.toClassReference(module)
+    if (boundFromAnnotation.fqName == anyFqName) return anyFqName.toClassReference(module) to emptyList()
+
+    val directBoundType = declaringClass().directSuperTypeReferences().firstOrNull {
+      it.asClassReferenceOrNull()?.fqName == boundFromAnnotation.fqName
+    }
+    println("DBT $directBoundType")
+
+    if (directBoundType != null) {
+      val typeArguments = (directBoundType.asTypeNameOrNull() as? ParameterizedTypeName)?.typeArguments ?: emptyList()
+      println("TA ${directBoundType.asTypeNameOrNull()?.javaClass} $typeArguments")
+      return directBoundType.asClassReference() to typeArguments
+    }
 
     // ensure that the bound type is actually a supertype of the contributing class
     val boundType = declaringClass().allSuperTypeClassReferences()
-      .firstOrNull { it.fqName == boundFromAnnotation.fqName }
+      .firstOrNull {
+        it.fqName == boundFromAnnotation.fqName
+      }
       ?: throw AnvilCompilationException(
         "$fqName contributes a binding for ${boundFromAnnotation.fqName}, " +
           "but doesn't extend this type."
       )
-    return boundType
+    return boundType to emptyList()
   }
 
   // If there's no bound type in the annotation,
   // it must be the only supertype of the contributing class
   val boundType = declaringClass().directSuperTypeReferences().singleOrNull()
-    ?.asClassReference()
     ?: throw AnvilCompilationException(
       message = "$fqName contributes a binding, but does not " +
         "specify the bound type. This is only allowed with exactly one direct super type. " +
@@ -77,7 +95,9 @@ private fun AnnotationReference.requireBoundType(module: ModuleDescriptor): Clas
         "the @$shortName annotation."
     )
 
-  return boundType
+  val typeArguments = (boundType.asTypeNameOrNull() as? ParameterizedTypeName)?.typeArguments ?: emptyList()
+  println("TA ${boundType.asTypeNameOrNull()?.javaClass} $typeArguments")
+  return boundType.asClassReference() to typeArguments
 }
 
 private fun ClassReference.qualifiersKeyLazy(

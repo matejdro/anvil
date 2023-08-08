@@ -406,6 +406,30 @@ public fun ClassReference.allSuperTypeClassReferences(
     .distinct()
 }
 
+/**
+ * This will return all super types of this class reference.
+ *
+ * The first elements in the returned sequence represent the direct superclass to the receiver. The
+ * last elements represent the types which are furthest up-stream.
+ *
+ * @param includeSelf If true, the receiver class is the first element of the sequence
+ */
+@ExperimentalAnvilApi
+public fun ClassReference.allSuperTypeReferences(
+  includeSelf: Boolean = false
+): Sequence<TypeReference> {
+  return generateSequence(listOf(this.asTypeName())) { superTypes ->
+    superTypes
+      .flatMap { typeRef ->
+        typeRef.as?.directSuperTypeReferences().mapNotNull { it.asTypeNameOrNull() }
+      }
+      .takeIf { it.isNotEmpty() }
+  }
+    .drop(if (includeSelf) 0 else 1)
+    .flatten()
+    .distinct()
+}
+
 @ExperimentalAnvilApi
 @Suppress("FunctionName")
 public fun AnvilCompilationExceptionClassReference(

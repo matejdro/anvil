@@ -346,7 +346,6 @@ private fun List<ContributedBinding>.findHighestPriorityBinding(): ContributedBi
 private fun ContributedBinding.toGeneratedMethod(
   isMultibinding: Boolean
 ): GeneratedMethod {
-
   val isMapMultibinding = mapKeys.isNotEmpty()
 
   val methodNameSuffix = buildString {
@@ -356,12 +355,15 @@ private fun ContributedBinding.toGeneratedMethod(
     }
   }
 
-  val boundTypeWithStarGenerics = boundType.asClassName()
+  val boundTypeWithTypeParameters = boundType.asClassName()
     .let {
       if (boundType.typeParameters.isEmpty()) {
         it
-      } else {
+      } else if (isMultibinding) {
         it.parameterizedBy(boundType.typeParameters.map { STAR })
+      } else {
+        println("PB $boundTypeParameters")
+        it.parameterizedBy(boundTypeParameters)
       }
     }
 
@@ -377,7 +379,7 @@ private fun ContributedBinding.toGeneratedMethod(
         }
         .addAnnotations(qualifiers)
         .addAnnotations(mapKeys)
-        .returns(boundTypeWithStarGenerics)
+        .returns(boundTypeWithTypeParameters)
         .addStatement("return %T", contributedClass.asClassName())
         .build(),
       contributedClass = contributedClass,
@@ -400,7 +402,7 @@ private fun ContributedBinding.toGeneratedMethod(
           name = contributedClass.shortName.decapitalize(),
           type = contributedClass.asClassName()
         )
-        .returns(boundTypeWithStarGenerics)
+        .returns(boundTypeWithTypeParameters)
         .build(),
       contributedClass = contributedClass,
       boundType = boundType
